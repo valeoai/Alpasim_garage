@@ -1,0 +1,86 @@
+# The upstream DrivoR agent's model config (valeoai/DrivoR,
+# navsim/planning/script/config/common/agent/drivoR.yaml). Only `config` is read
+# (policy.py builds the network from it, with the navtest evaluation's overrides).
+config:
+  b2d: false  # training for navsim
+
+  shared_refiner: false
+  ref_num: 4  # number of refining steps
+  scorer_ref_num: 4
+
+  proposal_num: 64  # number of proposals (trajectories)
+  num_poses: 8  # size of the trajectories
+
+  num_scene_tokens: 16
+  one_token_per_traj: true
+  full_history_status: false
+  num_history_frames: 4       # NOTE(port): NAVSIM history frames (1.5s @ 2Hz + current)
+  history_interval_s: 0.5
+
+  long_trajectory_additional_poses: -1  # to load additional poses (unused in this version)
+
+  # final-score aggregation weights (log-space aggregation in the model)
+  noc: 1.0
+  dac: 1.0
+  ddc: 0.0
+  ttc: 5.0
+  ep: 5.0
+  comfort: 2.0
+
+  tf_d_model: 256  # general feature size of the model
+  tf_d_ffn: 1024  # hidden size of the heads
+
+  ####################
+  # sensor config: non-empty list = camera used (upstream semantics; values themselves unused here)
+  cam_f0: [3]
+  cam_l0: [3]
+  cam_l1: []
+  cam_l2: []
+  cam_r0: [3]
+  cam_r1: []
+  cam_r2: []
+  cam_b0: [3]
+  lidar_pc: []
+
+  ####################
+  # image branch params
+  image_size: [1148, 672]  # input image size (W, H)
+
+  image_backbone:
+    model_name: timm/vit_small_patch14_reg4_dinov2.lvd142m
+    model_weights: weights/vit_small_patch14_reg4_dinov2.lvd142m/model.safetensors
+    use_lora: true
+    finetune: false
+    lora_rank: 32
+    focus_front_cam: false
+    use_feature_pooling: false
+    compress_fc: false
+
+  #####################
+  # Lidar branch params (disabled by default: lidar_pc = [])
+  lidar_min_x: -35
+  lidar_max_x: 35
+  lidar_min_y: -35
+  lidar_max_y: 35
+  lidar_image_size: [518, 518]
+  lidar_hist_max_per_pixel: 5
+  lidar_max_height: 100.0
+  lidar_split_height: 0.2
+  lidar_use_ground_plane: true
+  lidar_backbone:
+    model_name: timm/vit_small_patch14_reg4_dinov2.lvd142m
+    model_weights: weights/vit_small_patch14_reg4_dinov2.lvd142m/model.safetensors
+    use_lora: true
+    finetune: false
+    lora_rank: 32
+    in_chans: 2  # 2 if use ground plane, 1 otherwise
+
+  ####################
+  # scorer params
+  double_score: false
+  agent_pred: false
+  area_pred: false
+  bev_map: false
+  bev_agent: false
+  refiner_num_heads: 1
+  refiner_ls_values: 0.0

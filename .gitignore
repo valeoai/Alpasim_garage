@@ -1,0 +1,11 @@
+runs
+slurm-*.out
+slurm-*.err
+__pycache__/
+*.pyc
+*.ckpt
+*.pth
+*.pt
+*.sif
+*.tar.gz
+ckpts/
