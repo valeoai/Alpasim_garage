@@ -194,7 +194,7 @@ Paths derived from `PROJECT`, which you rarely need to change:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ALPASIM_REPO`, `ALPASIM_COMMIT` | `$PROJECT/code/alpasim`, `2023534` | AlpaSim checkout (`e2e_challenge` branch), pinned to the commit of the [baseline results](#10-baseline-results); `ALPASIM_COMMIT=` keeps the branch head |
+| `ALPASIM_REPO`, `ALPASIM_COMMIT` | `$PROJECT/code/alpasim`, `e121e59` | AlpaSim checkout (`e2e_challenge` branch), pinned to a commit with the [lateral-corridor fix](#corridor-fix); `ALPASIM_COMMIT=2023534` reproduces the [baseline results](#10-baseline-results), `ALPASIM_COMMIT=` keeps the branch head |
 | `ALPASIM_NUPLAN_ROOT` | `$PROJECT/alpasim-nuplan-track` | nuPlan-track data |
 | `ALPASIM_PAI_ROOT` | `$PROJECT/alpasim-pai` | PAI scenes, under `nre-artifacts/` |
 | `NRE_IMAGE`, `NRE_SIF` | `nvcr.io/nvidia/nre/nre-ga:26.04`, `$PROJECT/images/nre-ga_26.04.sif` | PAI renderer image, and its Apptainer build |
@@ -436,16 +436,17 @@ A PAI scene takes 3–5 min of one GPU, so the validation set is about 20–40 G
 
 ## 10. Baseline results
 
-All with AlpaSim `e2e_challenge` at **`2023534`** (the `config.sh` default) and the checkpoints
-of section 7. Scene score is the challenge's main metric; see section 11 for the others. The
+All with AlpaSim `e2e_challenge` at **`2023534`** and the checkpoints of section 7, that is
+**before the lateral-corridor fix** that the `config.sh` default `e121e59` includes (see the
+note below); set `ALPASIM_COMMIT=2023534` to reproduce them exactly. Scene score is the challenge's main metric; see section 11 for the others. The
 simulation is deterministic, so a deterministic driver gives identical rollouts; only
 DiffusionDrive (which samples its diffusion noise) varies between rollouts.
 
-### nuPlan track: full navtest (1,485 scenes)
+### nuPlan track: full navtest (1,485 scenes) · before the corridor fix
 
 aarch64 GH200 nodes; 3 rollouts per scene, except vanilla DrivoR (1, deterministic):
 
-| Driver | Scene score (%) ↑ | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Pass (%) ↑ | Rear-ended (%) |
+| Driver | Scene score (%) ↑, before fix | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Pass (%) ↑ | Rear-ended (%) |
 |---|---|---|---|---|---|---|---|---|
 | DrivoR (vanilla) | **87.86** | **0.516** | 1.83 | **3.80** | **2.71** | 89.58 | **91.11** | 3.53 |
 | GTRS-Dense (SimScale) | 82.97 | 0.484 | 2.58 | 4.07 | 9.69 | **94.03** | 83.30 | 1.63 |
@@ -461,7 +462,7 @@ between GPU types.
 **Check against the official container evaluation.** Vanilla DrivoR, 1 rollout per scene, on
 x86_64 GPUs:
 
-| Setup | Scene score (%) ↑ | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Failures: at-fault / off-road / corridor / route error |
+| Setup | Scene score (%) ↑, before fix | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Failures: at-fault / off-road / corridor / route error |
 |---|---|---|---|---|---|---|---|
 | Official containers, RTX PRO 6000 (Blackwell) | 88.35 | 0.549 | 1.63 | 3.66 | 2.58 | 89.57 | 24 / 54 / 37 / 10 |
 | This repo, same GPU | 88.35 | 0.549 | 1.63 | 3.66 | 2.58 | 89.57 | 24 / 54 / 37 / 10 |
@@ -476,13 +477,31 @@ scenes (here 3 of 1,485); on one GPU type, a rerun reproduces every scene exactl
 > 2026-09-14) turned on the off-road failure for the nuPlan track; scoring the run above without
 > it gives 91.01 instead of 88.35.
 
-### nuPlan track: 100-scene quick check (`navtest_part001`)
+<a id="corridor-fix"></a>
+> **Lateral-corridor fix (`1b024f0`, #215, 2026-10-20).** A rollout fails when the ego ends
+> ≥ 4 m *sideways* from the human's path; driving further *along* it is allowed. Past the end of
+> the path, AlpaSim up to `2023534` measured the sideways part against the heading of the last
+> recorded segment, which can point anywhere when the recording ends with near-duplicate poses,
+> and position jitter could also make the plain distance (overshoot included) count as sideways.
+> An ego that reaches the end of the human path could therefore fail the corridor while
+> driving in its lane. The fix takes the heading over the last metre of motion and measures the
+> distance to the path extended by a ray from its endpoint. It only removes such false corridor
+> exits, so scores can only go up, and drivers that keep pace with the human gain the most. It
+> changes `src/eval/src/eval/scorers/ground_truth.py` only; the next commit, `e121e59`, adds
+> report uploading to the challenge CLI and changes no score. The tables in this section were
+> scored before the fix. As an example, re-scoring a PAI-track run of one of our
+> own DrivoR models with the fix (same rollouts, AlpaSim's aggregation) cleared 25 of its 55
+> corridor exits, all at full progress, and raised its scene score from 59.38 to 65.05. For an
+> existing setup, `git -C $ALPASIM_REPO fetch && git -C $ALPASIM_REPO checkout e121e59` is enough:
+> AlpaSim is installed in editable mode, so no rebuild is needed.
+
+### nuPlan track: 100-scene quick check (`navtest_part001`) · before the corridor fix
 
 The 100 scenes of the first asset tarball (`configs/nuplan_scenes/navtest_part001.yaml`), which
 the `dev` download already contains. One H100 node (4 shards), 1 rollout per scene, 6–7 min per
 driver. Use it to check a new site; 100 scenes are too few to rank the learned drivers.
 
-| Driver | Scene score (%) ↑ | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Pass (%) ↑ |
+| Driver | Scene score (%) ↑, before fix | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Pass (%) ↑ |
 |---|---|---|---|---|---|---|---|
 | Latent TransFuser (SimScale) | 90.68 | 0.913 | 0.00 | 3.00 | 4.00 | 87.19 | 93.00 |
 | DrivoR (vanilla) | 86.40 | 0.681 | 2.00 | 2.00 | 6.00 | 88.71 | 90.00 |
@@ -490,11 +509,11 @@ driver. Use it to check a new site; 100 scenes are too few to rank the learned d
 | GTRS-Dense (SimScale) | 81.27 | 0.503 | 4.00 | 2.00 | 12.00 | 92.47 | 82.00 |
 | Starter (straight line) | 59.83 | 0.269 | 3.00 | 7.00 | 16.00 | 70.41 | 76.00 |
 
-### PAI track: validation (`nurec_curated_val`, 441 scenes)
+### PAI track: validation (`nurec_curated_val`, 441 scenes) · before the corridor fix
 
 x86_64 A100 nodes, 1 rollout per scene; mean ± half the gap between two full runs:
 
-| Driver | Scene score (%) ↑ | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Pass (%) ↑ | Rear-ended (%) |
+| Driver | Scene score (%) ↑, before fix | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Pass (%) ↑ | Rear-ended (%) |
 |---|---|---|---|---|---|---|---|---|
 | DrivoR (vanilla) | **29.16** ± 0.29 | 0.192 | 16.10 | **19.62** | 27.55 | 46.17 | 42.29 | 18.03 |
 | Latent TransFuser (SimScale) | 27.65 ± 0.03 | 0.225 | 10.88 | 20.98 | 32.09 | 47.38 | 41.72 | 20.98 |
@@ -508,7 +527,7 @@ vanilla DrivoR scores 30.06. Unlike on nuPlan, camera drivers vary by about ±0.
 between full PAI runs, even on one GPU type, so compare means over several runs. The PAI
 scenes are not comparable to the nuPlan ones (about 20 s instead of 5 s).
 
-The `dev` scene gives a quick pipeline check: `starter` scores 39.63 (progress 31.70,
+The `dev` scene gives a quick pipeline check (before the fix): `starter` scores 39.63 (progress 31.70,
 rear-ended 100%, `failures: none=1`) and vanilla DrivoR 100.00.
 
 ---

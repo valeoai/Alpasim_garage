@@ -40,8 +40,12 @@ if [ ! -d "$ALPASIM_REPO/.git" ]; then
   git "${lfs_off[@]}" clone -b "$ALPASIM_BRANCH" https://github.com/NVlabs/alpasim.git "$ALPASIM_REPO"
 fi
 cd "$ALPASIM_REPO"
-# ALPASIM_COMMIT pins the checkout, e.g. to the commit a reported result used
-[ -z "${ALPASIM_COMMIT:-}" ] || git "${lfs_off[@]}" checkout -q "$ALPASIM_COMMIT"
+# ALPASIM_COMMIT pins the checkout, e.g. to the commit a reported result used. An existing clone
+# may predate it, so fetch the branch first when the commit is missing.
+if [ -n "${ALPASIM_COMMIT:-}" ]; then
+  git cat-file -e "$ALPASIM_COMMIT^{commit}" 2>/dev/null || git "${lfs_off[@]}" fetch -q origin "$ALPASIM_BRANCH"
+  git "${lfs_off[@]}" checkout -q "$ALPASIM_COMMIT"
+fi
 echo ">> AlpaSim at $(git log --oneline -1)"
 
 # 3. protos (same as the Dockerfile). uv syncs into this conda env instead of a
