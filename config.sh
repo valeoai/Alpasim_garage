@@ -47,8 +47,10 @@ fi
 : "${ALPASIM_REPO:=$PROJECT/code/alpasim}"
 : "${ALPASIM_BRANCH:=e2e_challenge}"
 # Commit to check out (setup/create_env.sh); set it empty to keep the branch head. The default
-# e121e59 includes AlpaSim's lateral-corridor fix (1b024f0, README section 10). The README's
-# baseline results and drivers/simscale/ come from 2023534, two commits earlier.
+# e121e59 includes AlpaSim's lateral-corridor fix (1b024f0, README section 10), with which the
+# README's baseline results are scored. drivers/simscale/ comes from 2023534, two commits earlier
+# (the commits in between change only the scorer and the challenge CLI); ALPASIM_COMMIT=2023534
+# reproduces the results scored before the fix.
 : "${ALPASIM_COMMIT=e121e59}"
 
 # nuPlan-track data; setup/download_nuplan_track.sh fills it (~560 GB).
