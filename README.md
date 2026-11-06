@@ -74,7 +74,7 @@ cat runs/drivor_full/metrics.txt          # written when the last shard finishes
 ```
 
 For the PAI track, also see [section 6.2](#62-pai-track) (gated scenes, NRE image,
-harmonizer) and prefix the commands with `TRACK=pai`.
+harmonizer, ego hood) and prefix the commands with `TRACK=pai`.
 
 ---
 
@@ -106,7 +106,8 @@ next 0.5 s. That makes **10 decisions, about 5 s** of closed-loop driving per sc
 
 **PAI track.** Same loop on NuRec reconstructions (`.usdz`) of NVIDIA's PhysicalAI-AV
 recordings: longer scenes (~20 s), six 10 Hz f-theta cameras (`camera_front_wide_120fov`, …)
-instead of the nuPlan rig, and a physics service. The NAVSIM-trained baselines see nuPlan-like
+instead of the nuPlan rig, and a physics service. As in the recordings, the front camera shows the
+hood of the ego car ([section 6.2](#62-pai-track)). The NAVSIM-trained baselines see nuPlan-like
 views that their adapters synthesize from the PAI cameras.
 
 **Scoring** (AlpaSim's `src/eval/src/eval/aggregation/scene_score.py`): a rollout scores
@@ -127,7 +128,7 @@ setup/
   check_env.sh                test CUDA torch + gsplat kernels (GPU node)
   download_nuplan_track.sh    nuPlan-track data from Hugging Face (dev ~36 GB / full ~491 GB)
   download_checkpoints.sh     baseline checkpoints (DrivoR, SimScale) + NRE harmonizer
-  download_pai_scenes.sh      PAI track: NuRec scenes from Hugging Face (gated)
+  download_pai_scenes.sh      PAI track: NuRec scenes from Hugging Face (gated) + ego hood
   pull_nre.sh                 PAI track: NRE renderer image → Apptainer .sif (x86_64)
 drivers/
   README.md                   the driver contract; how to add your own
@@ -309,6 +310,16 @@ post-processing model NRE downloads on first use, which fails on offline compute
 `setup/download_checkpoints.sh` fetches it (section 7), and the renderer gets it read-only at
 NRE's default cache path, so its command stays the official one.
 
+**5. Ego hood.** As in the challenge, the renderer draws the hood of the recording car (rig
+`hyperion_8_1`) over every `camera_front_wide_120fov` frame sent to the driver; the other
+cameras, and the nuPlan track, never get one. The hood images are not in the Hugging Face
+dataset: they ship in the AlpaSim repo (`data/nre-artifacts/ego-hoods/`), and the renderer reads
+them from `$ALPASIM_PAI_ROOT/nre-artifacts/ego-hoods`. `download_pai_scenes.sh` (step 2) copies
+them there from the AlpaSim checkout. If they are missing, NRE silently renders no hood, so
+`run_eval.sh` and `slurm/submit.sh` stop with an error instead. `EGO_HOOD=0` runs without the hood
+(`runtime.simulation_config.ego_mask_rig_config_id=null`), as the PAI results of
+[section 10](#10-baseline-results) were scored.
+
 ---
 
 ## 7. Download the checkpoints
@@ -371,6 +382,7 @@ GPU=1 BASEPORT=6100 DRIVER_PORT=7001 bash run_eval.sh diffusiondrive dev
 | Environment variable | Default | Effect |
 |---|---|---|
 | `TRACK` | `nuplan` | `nuplan` or `pai` |
+| `EGO_HOOD` | `1` | PAI: draw the ego hood on the front camera, as in the challenge; `0` turns it off (section 6.2) |
 | `GPU` | `0` | GPU for the renderer and the driver |
 | `BASEPORT` | `6000` | renderer port; controller on `BASEPORT+1` (physics `+2`) |
 | `DRIVER_PORT` | `6789` | driver gRPC port |
@@ -419,7 +431,7 @@ A PAI scene takes 3–5 min of one GPU, so the validation set is about 20–40 G
 | `SCENE_LIST=file.yaml` | take the scenes from that file (`scenes.scene_ids`) instead of `navtest_full` (use an absolute path) |
 | `TRACK=pai` | run the PAI track (needs a `SCENE_LIST`) |
 | `SHARD_LIMIT=N` | keep only the first N scenes of each shard (smoke tests) |
-| `N_ROLLOUTS`, `VIDEO`, `WIZARD_OVERRIDES`, `DRIVOR_CHECKPOINT_PATH`, … | passed on to every shard |
+| `N_ROLLOUTS`, `VIDEO`, `EGO_HOOD`, `WIZARD_OVERRIDES`, `DRIVOR_CHECKPOINT_PATH`, … | passed on to every shard |
 
 - **Monitoring:** `squeue -u $USER`; per node `runs/<RUN>/slurm-<job>_<task>.out`; per shard
   `runs/<RUN>/shard_XXX.out` and `runs/<RUN>/shard_XXX/{driver.log,wizard.log,txt-logs/}`.
@@ -435,6 +447,13 @@ A PAI scene takes 3–5 min of one GPU, so the validation set is about 20–40 G
 ---
 
 ## 10. Baseline results
+
+> [!WARNING]
+> **The PAI-track results in this section were scored without the ego hood.** Back then the
+> renderer's hood folder was empty, so the front camera showed no hood, unlike in the challenge.
+> PAI runs now draw the hood by default ([section 6.2](#62-pai-track)), so their scores are not
+> directly comparable to these tables; set `EGO_HOOD=0` to reproduce them. The nuPlan results are
+> not affected: the nuPlan track has no hood.
 
 All scored **with the lateral-corridor fix** (AlpaSim `1b024f0`, see the note below), which the
 `config.sh` default `e121e59` includes, and the checkpoints of section 7. Scene score is the
@@ -515,7 +534,8 @@ these 100 scenes of the full runs above (A100, 1 rollout per scene, DiffusionDri
 
 ### PAI track: validation (`nurec_curated_val`, 441 scenes)
 
-1 rollout per scene, except DiffusionDrive (3, ± the standard deviation over them):
+**Without the ego hood** (`EGO_HOOD=0`; see the warning at the top of this section). 1 rollout
+per scene, except DiffusionDrive (3, ± the standard deviation over them):
 
 | Driver | Scene score (%) ↑ | km / infr. ↑ | Coll. at-fault (%) ↓ | Off-road (%) ↓ | Corridor (%) ↓ | Progress (%) ↑ | Pass (%) ↑ | Rear-ended (%) |
 |---|---|---|---|---|---|---|---|---|
@@ -532,7 +552,8 @@ scenes are not comparable to the nuPlan ones (about 20 s instead of 5 s).
 
 The `dev` scene gives a quick pipeline check: `starter` scores 39.63 (progress 31.70,
 rear-ended 100%, `failures: none=1`) and vanilla DrivoR 100.00, the same before and after the
-fix (neither leaves the corridor).
+fix (neither leaves the corridor). DrivoR also scores 100.00 with the ego hood (its rollout
+changes slightly); `starter` ignores the cameras, so the hood can't change its score.
 
 <details>
 <summary><b>Results scored before the corridor fix</b> (AlpaSim <code>2023534</code>; set <code>ALPASIM_COMMIT=2023534</code> to reproduce them)</summary>
@@ -701,8 +722,9 @@ unchanged. Every other service is a host process. Three things Docker doesn't ne
   points (e.g. the runtime's `usdz.data_dir=/mnt/nre-data/...`); they are rewritten to the
   host paths of the compose volumes, as the commands already are.
 
-The renderer's `--egocar-hood-dir` isn't published; it is created empty. The harmonizer
-checkpoint is bound read-only at NRE's default cache path (`~/.cache/nre/harmonizer`).
+The renderer's `--egocar-hood-dir` is bound from `$ALPASIM_PAI_ROOT/nre-artifacts/ego-hoods`
+(section 6.2). The harmonizer checkpoint is bound read-only at NRE's default cache path
+(`~/.cache/nre/harmonizer`).
 
 ---
 
@@ -723,6 +745,7 @@ checkpoint is bound read-only at NRE's default cache path (`~/.cache/nre/harmoni
 | Renderer hangs or fails loading the harmonizer | `harmonizer_nontemporal.pt` isn't in `$NRE_HARMONIZER_DIR`: `bash setup/download_checkpoints.sh harmonizer`. |
 | `NRE_SIF=... not found` | Run `setup/pull_nre.sh` on a login node. |
 | `apptainer pull` runs out of space | It needs about twice the image size in `$APPTAINER_TMPDIR`; point it at project storage. |
+| `ERROR: the PAI ego hood is missing` | The hood images aren't in `$ALPASIM_PAI_ROOT/nre-artifacts/ego-hoods`. Run `bash setup/download_pai_scenes.sh` once (it copies them from the AlpaSim checkout), or set `EGO_HOOD=0` to run without the hood. |
 | `CUDA driver version is insufficient` (PAI) | The node's NVIDIA driver is older than 570. |
 | Many array tasks fail within seconds | A bad node takes task after task. Check `sacct -j <job> -X -o JobID,State,Elapsed,NodeList`, then resubmit with `--array=<indices> --exclude=<node>`. |
 
@@ -747,6 +770,8 @@ checkpoint is bound read-only at NRE's default cache path (`~/.cache/nre/harmoni
   AlpaSim's route (first waypoint ≥ 5 m ahead, ±2 m lateral threshold), which can differ from
   NAVSIM's own labels.
 - **Harmonizer (PAI).** Loaded from a local copy of the official checkpoint instead of downloaded.
+- **Ego hood (PAI).** Drawn on the front camera by default, as in the challenge. The PAI results
+  of section 10 were scored without it (`EGO_HOOD=0`).
 
 ---
 

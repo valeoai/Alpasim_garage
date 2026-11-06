@@ -25,6 +25,7 @@
 #   VIDEO=0|1         force video rendering off/on (default: dev on, full off)
 #   RUNS_ROOT=runs    where run folders go
 #   TRACK=nuplan|pai  challenge track (default nuplan)
+#   EGO_HOOD=1|0      PAI: draw the ego hood on the front camera, as in the challenge (default 1)
 #   WIZARD_OVERRIDES  extra wizard overrides, space-separated (also reaches SLURM shards)
 set -euo pipefail
 type module >/dev/null 2>&1 || [ "${ALPASIM_RELOGIN:-}" = "$0" ] || ALPASIM_RELOGIN=$0 exec bash -l "$0" "$@"
@@ -46,6 +47,18 @@ LOG_DIR=${LOG_DIR:-$(realpath -m "${RUNS_ROOT:-$HPC_ROOT/runs}/$RUN")}
 [ -n "${VIDEO:-}" ] && OVERRIDES+=("eval.video.render_video=$([ "$VIDEO" = 1 ] && echo true || echo false)")
 if [ -n "${WIZARD_OVERRIDES:-}" ]; then read -ra _more <<<"$WIZARD_OVERRIDES"; OVERRIDES+=("${_more[@]}"); fi
 
+case $TRACK in
+  nuplan) TRACK_ARGS=(+e2e_challenge_nuplan="$PRESET") ;;
+  # NuRec scenes are fetched from Hugging Face into $ALPASIM_PAI_ROOT/nre-artifacts
+  # (no internet on compute nodes: prefetch with setup/download_pai_scenes.sh), which also
+  # holds the ego hood drawn on the front camera (EGO_HOOD, lib/common.sh)
+  pai) TRACK_ARGS=(+e2e_challenge="$PRESET" "defines.filesystem=$ALPASIM_PAI_ROOT"
+                   "services.physics.gpus=[$GPU]")
+       hood=$(ego_hood_overrides) || exit 1
+       [ -z "$hood" ] || TRACK_ARGS+=("$hood") ;;
+  *) echo "ERROR: TRACK must be nuplan or pai, not '$TRACK'" >&2; exit 1 ;;
+esac
+
 load_modules
 activate_env
 # Inside a SLURM job array, AlpaSim would split the scenes again by array task
@@ -53,7 +66,7 @@ activate_env
 # the array from AlpaSim.
 for var in $(compgen -e | grep '^SLURM_ARRAY_' || true); do unset "$var"; done
 mkdir -p "$LOG_DIR"
-echo ">> driver $DRIVER, track $TRACK, preset $PRESET, GPU $GPU, ports $BASEPORT/$((BASEPORT + 1)) + driver :$ALPASIM_DRIVER_PORT"
+echo ">> driver $DRIVER, track $TRACK$([ "$TRACK" = pai ] && echo " (ego hood ${EGO_HOOD:-1})"), preset $PRESET, GPU $GPU, ports $BASEPORT/$((BASEPORT + 1)) + driver :$ALPASIM_DRIVER_PORT"
 echo ">> output: $LOG_DIR"
 
 # 1. driver, in the background on this GPU
@@ -62,14 +75,6 @@ CUDA_VISIBLE_DEVICES=$GPU ALPASIM_DRIVER_LOG_DIR=$LOG_DIR/driver-logs \
 trap 'kill $DRIVER_PID 2>/dev/null || true' EXIT
 
 # 2. wizard: write the service configs and docker-compose.yaml, start nothing
-case $TRACK in
-  nuplan) TRACK_ARGS=(+e2e_challenge_nuplan="$PRESET") ;;
-  # NuRec scenes are fetched from Hugging Face into $ALPASIM_PAI_ROOT/nre-artifacts
-  # (no internet on compute nodes: prefetch with setup/download_pai_scenes.sh)
-  pai) TRACK_ARGS=(+e2e_challenge="$PRESET" "defines.filesystem=$ALPASIM_PAI_ROOT"
-                   "services.physics.gpus=[$GPU]") ;;
-  *) echo "ERROR: TRACK must be nuplan or pai, not '$TRACK'" >&2; exit 1 ;;
-esac
 # Run from $LOG_DIR, not the alpasim repo: the wizard and its check_config subprocess are Hydra
 # apps that create outputs/<date>/ in their working directory, and the repo's filesystem may be
 # out of inodes. Every config path the wizard writes is absolute, so the directory is free to pick.

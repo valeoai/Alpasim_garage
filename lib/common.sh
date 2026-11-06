@@ -39,6 +39,45 @@ activate_env() {
   export GIT_PYTHON_REFRESH=quiet
 }
 
+# PAI track: the ego-car hood. As in the challenge, NRE draws the hood of the recording car
+# over every camera_front_wide_120fov frame (runtime.simulation_config.ego_mask_rig_config_id
+# = hyperion_8_1, AlpaSim's default). The hood images ship in the AlpaSim repo
+# (data/nre-artifacts/ego-hoods/<rig>/<camera>.png, ordinary files, not on Hugging Face); the
+# renderer reads them from <data root>/nre-artifacts/ego-hoods, here $ALPASIM_PAI_ROOT's. If
+# that folder is missing, the renderer gets an empty one and silently renders no hood.
+# EGO_HOOD=0 turns the hood off (ego_mask_rig_config_id=null), as in the runs scored before
+# it was enabled.
+EGO_HOODS_DIR=$ALPASIM_PAI_ROOT/nre-artifacts/ego-hoods
+EGO_HOOD_RIG=hyperion_8_1
+EGO_HOOD_FILE=$EGO_HOODS_DIR/$EGO_HOOD_RIG/camera_front_wide_120fov.png
+
+# Copy the hood images from the AlpaSim checkout into $EGO_HOODS_DIR.
+install_ego_hoods() {
+  local src=$ALPASIM_REPO/data/nre-artifacts/ego-hoods
+  if [ ! -f "$src/$EGO_HOOD_RIG/camera_front_wide_120fov.png" ]; then
+    echo "ERROR: no ego hood in $src; is ALPASIM_REPO an AlpaSim e2e_challenge checkout?" >&2
+    return 1
+  fi
+  mkdir -p "$EGO_HOODS_DIR"
+  cp -r "$src/." "$EGO_HOODS_DIR/"
+  echo ">> ego hoods in $EGO_HOODS_DIR:"
+  (cd "$EGO_HOODS_DIR" && find . -name "*.png" | sort)
+}
+
+# Wizard overrides for the hood, or an error if it is on but not installed.
+ego_hood_overrides() {
+  case ${EGO_HOOD:-1} in
+    1) if [ ! -f "$EGO_HOOD_FILE" ]; then
+         echo "ERROR: the PAI ego hood is missing ($EGO_HOOD_FILE). Install it with" \
+              "'bash setup/download_pai_scenes.sh' (it copies it from the AlpaSim checkout)," \
+              "or set EGO_HOOD=0 to run without it." >&2
+         return 1
+       fi ;;
+    0) echo "runtime.simulation_config.ego_mask_rig_config_id=null" ;;
+    *) echo "ERROR: EGO_HOOD must be 1 or 0, not '$EGO_HOOD'" >&2; return 1 ;;
+  esac
+}
+
 # Start driver script $1 (a name from drivers/ or a path) in the background.
 # Sets DRIVER_PID. Output goes to $2.
 start_driver() {

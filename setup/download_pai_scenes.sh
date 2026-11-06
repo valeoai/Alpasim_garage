@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Prefetch PAI-track NuRec scenes (.usdz, from the Hugging Face dataset
 # nvidia/PhysicalAI-Autonomous-Vehicles-NuRec) into $ALPASIM_PAI_ROOT/nre-artifacts,
-# so runs on compute nodes (no internet) find them. Run on a login node.
+# so runs on compute nodes (no internet) find them, and installs the ego hood the renderer
+# draws on the front camera (from the AlpaSim checkout, into $ALPASIM_PAI_ROOT/nre-artifacts/
+# ego-hoods; lib/common.sh). Run on a login node.
 #   bash setup/download_pai_scenes.sh                      # the dev preset's scene
 #   bash setup/download_pai_scenes.sh "scenes.scene_ids=['clipgt-...','clipgt-...']"
 #   bash setup/download_pai_scenes.sh scenes.scene_ids=null scenes.test_suite_id=<suite>
@@ -13,6 +15,8 @@ HPC_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$HPC_ROOT/lib/common.sh"
 load_modules
 activate_env
+
+install_ego_hoods
 
 # the env's HF_HOME is the project cache; reuse the login's Hugging Face token
 if [ -z "${HF_TOKEN:-}" ] && [ -f "$HOME/.cache/huggingface/token" ]; then

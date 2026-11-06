@@ -20,6 +20,8 @@ NODES=${2:?usage: submit.sh DRIVER NODES [RUN] [sbatch args...]}
 RUN=${3:-$(basename "$DRIVER" .sh)_full_$(date +%m%d_%H%M)}
 RUN_DIR=$(realpath -m "${RUNS_ROOT:-$HPC_ROOT/runs}/$RUN")
 [ -f "$DRIVER" ] && DRIVER=$(realpath "$DRIVER")
+# fail here rather than in every shard
+[ "${TRACK:-nuplan}" != pai ] || ego_hood_overrides >/dev/null || exit 1
 
 # the shard split depends on the number of shards; refuse to mix
 if [ -f "$RUN_DIR/.num_shards" ] && [ "$(cat "$RUN_DIR/.num_shards")" != $((NODES * GPUS_PER_NODE)) ]; then
